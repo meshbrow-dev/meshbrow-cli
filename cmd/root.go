@@ -24,7 +24,7 @@ Launch, manage, and monitor browser sessions with anti-detection,
 unique fingerprints, and proxy rotation.
 
 Documentation: https://docs.meshbrow.dev
-Dashboard:     https://app.meshbrow.dev`,
+Dashboard:     https://meshbrow.dev`,
 }
 
 // Execute runs the root command.
