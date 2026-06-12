@@ -4,7 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -18,9 +21,16 @@ var authCmd = &cobra.Command{
 
 var authLoginCmd = &cobra.Command{
 	Use:   "login",
-	Short: "Save API key for CLI usage",
-	Long:  "Store your API key in ~/.meshbrow.yaml for future CLI commands.",
-	RunE:  runAuthLogin,
+	Short: "Log in to Meshbrow",
+	Long: `Authenticate the CLI with your Meshbrow account.
+
+By default this opens your browser to complete authentication — once you
+approve the request on the web, the CLI finishes automatically.
+
+To authenticate without a browser, pass an API key directly:
+
+  meshbrow auth login --key YOUR_API_KEY`,
+	RunE: runAuthLogin,
 }
 
 var authStatusCmd = &cobra.Command{
@@ -41,18 +51,18 @@ func init() {
 	authCmd.AddCommand(authStatusCmd)
 	authCmd.AddCommand(authLogoutCmd)
 
-	authLoginCmd.Flags().String("key", "", "API key to store")
+	authLoginCmd.Flags().String("key", "", "API key to store (skips the browser flow)")
 }
 
 func runAuthLogin(cmd *cobra.Command, args []string) error {
 	key, _ := cmd.Flags().GetString("key")
-	if key == "" {
-		fmt.Print("Enter your API key: ")
-		fmt.Scanln(&key)
-	}
 
 	if key == "" {
-		return fmt.Errorf("API key cannot be empty")
+		browserKey, err := browserLogin()
+		if err != nil {
+			return err
+		}
+		key = browserKey
 	}
 
 	// Validate the key by calling the API
@@ -94,6 +104,101 @@ func runAuthLogin(cmd *cobra.Command, args []string) error {
 	fmt.Printf("✓ Authenticated as %s\n", user.Email)
 	fmt.Printf("  Config saved to %s\n", configPath)
 	return nil
+}
+
+// --- Browser-based login (device authorization flow) ---
+
+type cliLoginStart struct {
+	DeviceCode      string `json:"device_code"`
+	UserCode        string `json:"user_code"`
+	VerificationURL string `json:"verification_url"`
+	ExpiresIn       int    `json:"expires_in"`
+	Interval        int    `json:"interval"`
+}
+
+type cliLoginPoll struct {
+	Status string `json:"status"`
+	APIKey string `json:"api_key"`
+}
+
+// openBrowser is a package variable so tests can stub it.
+var openBrowser = func(url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	default:
+		return exec.Command("xdg-open", url).Start()
+	}
+}
+
+// browserLogin runs the device authorization flow and returns an API key.
+func browserLogin() (string, error) {
+	client := &Client{
+		baseURL:    getAPIURL(),
+		httpClient: defaultHTTPClient(),
+	}
+
+	body, status, err := client.post("/v1/cli/auth/start", nil)
+	if err != nil {
+		return "", fmt.Errorf("starting login: %w", err)
+	}
+	if status != 200 {
+		return "", fmt.Errorf("starting login failed (status %d)", status)
+	}
+
+	var start cliLoginStart
+	if err := json.Unmarshal(body, &start); err != nil {
+		return "", fmt.Errorf("parsing login response: %w", err)
+	}
+
+	fmt.Printf("First, confirm this code matches your browser: %s\n\n", start.UserCode)
+	fmt.Printf("Opening %s\n", start.VerificationURL)
+	if err := openBrowser(start.VerificationURL); err != nil {
+		fmt.Println("Could not open a browser automatically — open the URL above manually.")
+	}
+	fmt.Println("\nWaiting for approval...")
+
+	return pollBrowserLogin(client, start)
+}
+
+// pollBrowserLogin polls until the login is approved, denied, or expired.
+func pollBrowserLogin(client *Client, start cliLoginStart) (string, error) {
+	interval := time.Duration(start.Interval) * time.Second
+	if interval <= 0 {
+		interval = 2 * time.Second
+	}
+	expiresIn := time.Duration(start.ExpiresIn) * time.Second
+	if expiresIn <= 0 {
+		expiresIn = 10 * time.Minute
+	}
+	deadline := time.Now().Add(expiresIn)
+
+	for time.Now().Before(deadline) {
+		time.Sleep(interval)
+
+		body, status, err := client.post("/v1/cli/auth/poll", map[string]string{
+			"device_code": start.DeviceCode,
+		})
+		if err != nil || status != 200 {
+			continue // transient error, keep polling until the deadline
+		}
+
+		var poll cliLoginPoll
+		if err := json.Unmarshal(body, &poll); err != nil {
+			continue
+		}
+
+		switch poll.Status {
+		case "approved":
+			return poll.APIKey, nil
+		case "expired":
+			return "", fmt.Errorf("login request expired — run 'meshbrow auth login' again")
+		}
+	}
+
+	return "", fmt.Errorf("login timed out — run 'meshbrow auth login' again")
 }
 
 func runAuthStatus(cmd *cobra.Command, args []string) error {

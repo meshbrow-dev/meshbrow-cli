@@ -62,6 +62,17 @@ func (c *Client) do(method, path string, body interface{}) ([]byte, int, error) 
 		return nil, resp.StatusCode, fmt.Errorf("reading response: %w", err)
 	}
 
+	// The API wraps successful responses in a {"data": ...} envelope.
+	// Unwrap it so callers can decode payloads directly.
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		var envelope struct {
+			Data json.RawMessage `json:"data"`
+		}
+		if err := json.Unmarshal(respBody, &envelope); err == nil && len(envelope.Data) > 0 {
+			return envelope.Data, resp.StatusCode, nil
+		}
+	}
+
 	return respBody, resp.StatusCode, nil
 }
 
