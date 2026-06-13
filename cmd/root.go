@@ -25,6 +25,7 @@ unique fingerprints, and proxy rotation.
 
 Documentation: https://docs.meshbrow.dev
 Dashboard:     https://meshbrow.dev`,
+	SilenceUsage: true,
 }
 
 // Execute runs the root command.
