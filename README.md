@@ -1,6 +1,8 @@
 # meshbrow CLI
 
-The official command-line tool for [Meshbrow](https://meshbrow.dev) — Managed Browser Fleet for AI Agents.
+The official command-line tool for [Meshbrow](https://meshbrow.dev) — persistent browser infrastructure for AI agents.
+
+Launch cloud browsers that remember logins, stay undetected, and connect via CDP.
 
 ## Installation
 
@@ -37,7 +39,7 @@ make install
 # Authenticate
 meshbrow auth login --key mb_live_your_key_here
 
-# Launch a stealth browser session
+# Launch a cloud browser session
 meshbrow sessions create --stealth max --proxy-country US
 
 # List active sessions
@@ -93,8 +95,9 @@ export MESHBROW_API_URL=https://api.meshbrow.dev
 
 ## Documentation
 
-Full CLI reference: [docs.meshbrow.dev/guides/cli](https://docs.meshbrow.dev/guides/cli)
+Full docs: [docs.meshbrow.dev](https://docs.meshbrow.dev)  
+CLI reference: [docs.meshbrow.dev/guides/cli](https://docs.meshbrow.dev/guides/cli)
 
 ## License
 
-MIT
+MIT © [Bytangle Ltd](https://bytangle.com)
